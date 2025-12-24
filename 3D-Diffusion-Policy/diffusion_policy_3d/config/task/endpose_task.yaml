@@ -1,0 +1,28 @@
+name: ${task_name}-${setting}-${expert_data_num}-endpose
+
+shape_meta: &shape_meta
+  obs:
+    point_cloud:
+      shape: [1024, 3]  # 1024个点，每点3D坐标(xyz)
+      type: point_cloud
+  action:
+    shape: [8]  # 8维: 左xyz(3) + 左爪(1) + 右xyz(3) + 右爪(1)
+    type: low_dim
+
+env_runner:
+  _target_: diffusion_policy_3d.env_runner.robot_runner.RobotRunner
+  max_steps: 300
+  n_obs_steps: ${n_obs_steps}
+  n_action_steps: ${n_action_steps}
+  task_name: robot_endpose
+
+dataset:
+  _target_: diffusion_policy_3d.dataset.robot_dataset.RobotDataset
+  zarr_path: ../../../data/${task.name}.zarr
+  horizon: ${horizon}
+  pad_before: ${eval:'${n_obs_steps}-1'}
+  pad_after: ${eval:'${n_action_steps}-1'}
+  seed: 0
+  val_ratio: 0.02
+  max_train_episodes: null
+  task_name: ${task_name}
