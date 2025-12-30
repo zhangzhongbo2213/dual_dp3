@@ -21,6 +21,7 @@ from diffusion_policy_3d.model.common.normalizer import (
     SingleFieldLinearNormalizer,
 )
 from diffusion_policy_3d.dataset.base_dataset import BaseDataset
+import zarr
 import pdb
 
 
@@ -42,7 +43,26 @@ class RobotDataset(BaseDataset):
         current_file_path = os.path.abspath(__file__)
         parent_directory = os.path.dirname(current_file_path)
         zarr_path = os.path.join(parent_directory, zarr_path)
-        self.replay_buffer = ReplayBuffer.copy_from_path(zarr_path, keys=["state", "action", "point_cloud"])  # 'img'
+        
+        # 兼容无 state 的 EndPose 数据：动态检查可用键
+        zarr_root = zarr.open(zarr_path, mode="r")
+        data_group = zarr_root["data"] if "data" in zarr_root else {}
+
+        has_state = "state" in data_group
+        has_endpose_future = (
+            "left_endpose_future" in data_group and "right_endpose_future" in data_group
+        )
+
+        keys = ["action", "point_cloud"]
+        if has_state:
+            keys = ["state"] + keys
+        if has_endpose_future:
+            keys = keys + ["left_endpose_future", "right_endpose_future"]
+
+        self.has_state = has_state
+        self.has_endpose_future = has_endpose_future
+        
+        self.replay_buffer = ReplayBuffer.copy_from_path(zarr_path, keys=keys)
         val_mask = get_val_mask(n_episodes=self.replay_buffer.n_episodes, val_ratio=val_ratio, seed=seed)
         train_mask = ~val_mask
         train_mask = downsample_mask(mask=train_mask, max_n=max_train_episodes, seed=seed)
@@ -73,9 +93,17 @@ class RobotDataset(BaseDataset):
     def get_normalizer(self, mode="limits", **kwargs):
         data = {
             "action": self.replay_buffer["action"],
-            "agent_pos": self.replay_buffer["state"][..., :],
             "point_cloud": self.replay_buffer["point_cloud"],
         }
+
+        if self.has_state:
+            data["agent_pos"] = self.replay_buffer["state"][..., :]
+        
+        # 如果存在endpose future数据，添加到normalizer
+        if self.has_endpose_future:
+            data["left_endpose_future"] = self.replay_buffer["left_endpose_future"]
+            data["right_endpose_future"] = self.replay_buffer["right_endpose_future"]
+        
         normalizer = LinearNormalizer()
         normalizer.fit(data=data, last_n_dims=1, mode=mode, **kwargs)
         return normalizer
@@ -84,9 +112,6 @@ class RobotDataset(BaseDataset):
         return len(self.sampler)
 
     def _sample_to_data(self, sample):
-        agent_pos = sample["state"][
-            :,
-        ].astype(np.float32)  # (agent_posx2, block_posex3)
         point_cloud = sample["point_cloud"][
             :,
         ].astype(np.float32)  # (T, 1024, 6)
@@ -94,10 +119,47 @@ class RobotDataset(BaseDataset):
         data = {
             "obs": {
                 "point_cloud": point_cloud,  # T, 1024, 6
-                "agent_pos": agent_pos,  # T, D_pos
             },
             "action": sample["action"].astype(np.float32),  # T, D_action
         }
+
+        if self.has_state:
+            agent_pos = sample["state"][
+                :,
+            ].astype(np.float32)  # (agent_posx2, block_posex3)
+            data["obs"]["agent_pos"] = agent_pos  # T, D_pos
+        
+        # 如果存在endpose future数据，添加到obs中
+        if self.has_endpose_future:
+            if "left_endpose_future" in sample:
+                # endpose future数据格式说明:
+                # - 在zarr中存储为: [N, 6, 4] (N个样本，每个6帧，每帧4维)
+                # - SequenceSampler采样后: [T, 6, 4] (T是horizon=8)
+                # - GNN模型需要: [B, 6, 4] (batch维度在DataLoader中添加)
+                #
+                # 因为endpose future是每个观测帧对应的未来6帧EndPose，不随时间变化
+                # 所以我们需要取第一个时间步的endpose future
+                left_ep_future = sample["left_endpose_future"]
+                right_ep_future = sample["right_endpose_future"]
+                
+                # 处理维度：
+                # - 如果采样后是[T, 6, 4]，取第一个时间步得到[6, 4]
+                # - 如果已经是[6, 4]，直接使用
+                if left_ep_future.ndim == 3:
+                    # 序列采样后是[T, 6, 4]，取第一个时间步
+                    # 因为endpose future是每个观测帧固定的，不随时间变化
+                    left_ep_future = left_ep_future[0]  # [6, 4]
+                    right_ep_future = right_ep_future[0]  # [6, 4]
+                elif left_ep_future.ndim == 2:
+                    # 如果已经是[6, 4]，直接使用
+                    pass
+                else:
+                    raise ValueError(f"Unexpected endpose future shape: {left_ep_future.shape}, expected [T, 6, 4] or [6, 4]")
+                
+                # 添加到obs中，DataLoader会添加batch维度，变成[B, 6, 4]
+                data["obs"]["left_endpose_future"] = left_ep_future.astype(np.float32)
+                data["obs"]["right_endpose_future"] = right_ep_future.astype(np.float32)
+        
         return data
 
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:

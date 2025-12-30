@@ -292,6 +292,9 @@ class TrainDP3Workspace:
                     save_path = f"checkpoints/{self.cfg.task.name}_w_rgb_{cfg.training.seed}/{self.epoch + 1}.ckpt"
 
                 self.save_checkpoint(save_path)
+                # Also save as latest.ckpt for resume
+                latest_path = pathlib.Path(self.output_dir).joinpath("checkpoints", "latest.ckpt")
+                self.save_checkpoint(path=latest_path, tag="latest")
 
             # ========= eval end for this epoch ==========
             policy.train()

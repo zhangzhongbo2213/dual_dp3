@@ -1,25 +1,20 @@
-name: ${task_name}-${setting}-${expert_data_num}
+name: ${task_name}-${setting}-${expert_data_num}-endpose
 
 shape_meta: &shape_meta
-  # acceptable types: rgb, low_dim
   obs:
     point_cloud:
-      shape: [1024, 6]
+      shape: [1024, 3]  # 1024个点，每点3D坐标(xyz)
       type: point_cloud
-    agent_pos:
-      # 两臂各 3D TCP + 1D gripper => 8 维
-      shape: [8]
-      type: low_dim
   action:
-    # 预测未来 6 帧的 TCP+gripper，同样是 8 维
-    shape: [8]
+    shape: [8]  # 8维: 左xyz(3) + 左爪(1) + 右xyz(3) + 右爪(1)
+    type: low_dim
 
 env_runner:
   _target_: diffusion_policy_3d.env_runner.robot_runner.RobotRunner
   max_steps: 300
   n_obs_steps: ${n_obs_steps}
   n_action_steps: ${n_action_steps}
-  task_name: robot
+  task_name: robot_endpose
 
 dataset:
   _target_: diffusion_policy_3d.dataset.robot_dataset.RobotDataset
@@ -30,3 +25,4 @@ dataset:
   seed: 0
   val_ratio: 0.02
   max_train_episodes: null
+  task_name: ${task_name}

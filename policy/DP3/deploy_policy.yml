@@ -7,8 +7,16 @@ seed: null
 instruction_type: unseen
 
 # Add Parameters You Need
+# 原始 DP3 配置（保留以兼容旧流程）
 config_name: robot_dp3
 checkpoint_num: 3000
 dp3_task: demo_task
 expert_data_num: null
 use_rgb: false
+
+# 新增：EndPose + GNN-EndPose 串联策略开关及参数
+combined_mode: true
+# 使用 GNN-EndPose 的 config 主要是为了标记实验，实际加载 ckpt 由 combined_mode 逻辑处理
+combined_config_name: robot_dp3_gnn_endpose
+# 串联策略默认使用的 checkpoint 轮数
+combined_checkpoint_num: 300

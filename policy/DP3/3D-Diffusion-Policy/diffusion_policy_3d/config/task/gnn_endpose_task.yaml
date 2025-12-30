@@ -1,0 +1,39 @@
+name: ${task_name}-${setting}-${expert_data_num}-gnn-endpose
+
+shape_meta: &shape_meta
+  obs:
+    point_cloud:
+      shape: [1024, 3]  # 数据实际为xyz三通道
+      type: point_cloud
+    agent_pos:
+      # qpos: 左臂(7: 6关节+1gripper) + 右臂(7: 6关节+1gripper) = 14维
+      shape: [14]
+      type: low_dim
+    left_endpose_future:
+      # 未来6帧的 EndPose: [xyz + gripper] = 4维
+      shape: [6, 4]
+      type: low_dim
+    right_endpose_future:
+      # 未来6帧的 EndPose: [xyz + gripper] = 4维
+      shape: [6, 4]
+      type: low_dim
+  action:
+    # 预测未来6帧的qpos action (14维: 7+7)
+    shape: [14]
+
+env_runner:
+  _target_: diffusion_policy_3d.env_runner.robot_runner.RobotRunner
+  max_steps: 300
+  n_obs_steps: ${n_obs_steps}
+  n_action_steps: ${n_action_steps}
+  task_name: robot
+
+dataset:
+  _target_: diffusion_policy_3d.dataset.robot_dataset.RobotDataset
+  zarr_path: ../scripts/data/${task_name}-${setting}-${expert_data_num}-gnn-endpose.zarr
+  horizon: ${horizon}
+  pad_before: ${eval:'${n_obs_steps}-1'}
+  pad_after: ${eval:'${n_action_steps}-1'}
+  seed: 0
+  val_ratio: 0.02
+  max_train_episodes: null
